@@ -49,6 +49,11 @@ NodeGroupType = Union[
     ] # all have a #node_tree property and are Nodes
 NodeType = Union[str, Node, NodeSocket]
 
+INPUT_SYMBOL = '+'
+OUTPUT_SYMBOL = '-'
+SOCKET_DELIMETER = ':'
+PATH_DELIMETER = '/'
+
 def is_group(node: Node) -> bool:
     """
     Check if node is a *GroupNode of some sort
@@ -62,17 +67,19 @@ def build_path(*nodes: str,
     if input != False and output != False:
         raise ValueError("Path cannot be both input and output")
 
-    node_path = '/'.join(nodes)
+    node_path = PATH_DELIMETER.join(nodes)
 
-    if type(input) == str:
-        return '+{}:{}'.format(node_path, input)
-    elif input:
-        return '+{}'.format(node_path)
+    def _format_socket_path(socket, symbol):
+        if isinstance(socket, str):
+            return '{}{}{}{}'.format(
+                symbol, node_path, SOCKET_DELIMETER, socket)
 
-    if type(output) == str:
-        return '-{}:{}'.format(node_path, output)
-    elif input:
-        return '-{}'.format(node_path)
+        return '{}{}'.format(symbol, node_path)
+
+    if input != False:
+        return _format_socket_path(input, INPUT_SYMBOL)
+    elif output != False:
+        return _format_socket_path(output, OUTPUT_SYMBOL)
 
     return node_path
 
@@ -261,19 +268,20 @@ def _parse_path(node_path: str) -> Tuple[List[str], str, int, bool, bool]:
     socket_index = -1
     path_parts = None
 
-    if node_path[0] == '+':
+    if node_path[0] == INPUT_SYMBOL:
         output = False
         node_path = node_path[1:]
-    elif node_path[0] == '-':
+    elif node_path[0] == OUTPUT_SYMBOL:
         input = False
         node_path = node_path[1:]
 
-    parts = node_path.split(':')
+    parts = node_path.split(SOCKET_DELIMETER)
     if len(parts) > 1:
         socket = parts[-1]
-        path_parts = ':'.join(parts[:-1]).split('/')
+        path_parts = SOCKET_DELIMETER.join(parts[:-1])\
+            .split(PATH_DELIMETER)
     else:
-        path_parts = node_path.split('/')
+        path_parts = node_path.split(PATH_DELIMETER)
 
     if socket is not None:
         left_bracket = socket.find('[')

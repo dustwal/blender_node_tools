@@ -1,7 +1,7 @@
 blender_node_tools
 ==================
 
-A python module of functions to aid in manipulating node connections
+A python function module to aid in manipulating node connections
 in Blender.
 
 The goal is to make it simpler when adding / removing links between
@@ -17,7 +17,7 @@ Now this can look like::
 
     link_nodes(node_tree, 'From Node', 'To Node:Input')
 
-Even more roundabout was the removal of links:
+Even more roundabout was the removal of links::
 
     for link in node_tree.links:
         if link.to_node == node_tree.nodes['Node'] \
@@ -38,7 +38,7 @@ Outputs::
 
 
 Something like a compositor mix node have two inputs of the same name
-"Image". These may be targeting with a subscript index notation::
+"Image". These may be targeting with array index notation::
 
     link_nodes(node_tree, "Image Texture", "Mix:Image[0]")
     link_nodes(node_tree, "Fade Texture",  "Mix:Image[1]")
