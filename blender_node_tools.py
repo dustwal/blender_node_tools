@@ -4,6 +4,7 @@
 import sys
 
 from typing import (
+    Dict,
     Tuple,
     List,
     Optional,
@@ -51,27 +52,50 @@ NodeType = Union[str, Node, NodeSocket]
 
 INPUT_SYMBOL = '+'
 OUTPUT_SYMBOL = '-'
-SOCKET_DELIMETER = ':'
+SOCKET_DELIMITER = ':'
+
+def get_node(tree: NodeTree, of: NodeType) -> Node:
+    """
+    Retrieve the the Node from tree at the given `node_str`.
+
+    raises ValueError if `node_path` is invalid.
+    """
+    return _resolve_node(tree, of)['node']
+
+def get_sockets(tree: NodeTree, of: str) -> List[NodeSocket]:
+    node_data = _resolve_node(tree, of)
+    node_data['input_sockets'].extend(node_data['output_sockets'])
+    return node_data['input_sockets']
+
+def get_socket(tree: NodeTree, of: str) -> Optional[NodeSocket]:
+    sockets = get_sockets(tree, of)
+    if len(sockets) == 0:
+        return None
+    return sockets[0]
+
+def get_links(tree: NodeTree, of: NodeType) -> List[NodeLink]:
+    node_data = _resolve_node(tree, of)
+    node_data['input_links'].extend(node_data['output_links'])
+    return node_data['input_links']
+
+def get_link(tree: NodeTree, of: NodeType) -> Optional[NodeLink]:
+    links = get_links(tree, of)
+    if len(links) == 0:
+        return None
+    return links[0]
+
+def get_subtree(tree: NodeTree, of: NodeType) -> Optional[NodeTree]:
+    node = _resolve_node(tree, of)['node']
+    if is_group(node):
+        return node.node_tree
+    else:
+        return None
 
 def is_group(node: Node) -> bool:
     """
     Check if node is a *GroupNode of some sort.
     """
     return _is_union_instance(node, NodeGroupType)
-
-def format_node(node: str,
-    input: Union[bool,str]=False,
-    output: Union[bool,str]=False) \
-        -> str:
-    if input != False and output != False:
-        raise ValueError("Node ref cannot be both input and output")
-
-    if input != False:
-        return _format_socket_str(node, input, INPUT_SYMBOL)
-    elif output != False:
-        return _format_socket_str(node, output, OUTPUT_SYMBOL)
-
-    return node
 
 def link_nodes(
     tree: NodeTree,
@@ -91,32 +115,11 @@ def link_nodes(
     """
     connections = 0
 
-    output_sockets = []
-    input_sockets = []
+    from_data = _resolve_node(tree, link_from)
+    output_sockets = _label_sockets(from_data['output_sockets'], preserve_existing)
 
-    # get output sockets
-    if isinstance(link_from, NodeSocket):
-        if link_from.is_output:
-            output_sockets.append(link_from)
-    elif isinstance(link_from, Node):
-        for output in link_from.outputs:
-            output_sockets.append(output)
-    else:
-        _, _, output_sockets = resolve_node(tree, link_from)
-
-    output_sockets = _label_sockets(output_sockets, preserve_existing)
-
-    # get input sockets
-    if isinstance(link_to, NodeSocket):
-        if not link_to.is_output:
-            input_sockets.append(link_to)
-    elif isinstance(link_to, Node):
-        for input in link_to.inputs:
-            input_sockets.append(input)
-    else:
-        _, input_sockets, _ = resolve_node(tree, link_to)
-
-    input_sockets = _label_sockets(input_sockets, preserve_existing)
+    to_data = _resolve_node(tree, link_to)
+    input_sockets = _label_sockets(to_data['input_sockets'], preserve_existing)
 
     for output_data in output_sockets:
         output, out_matched = output_data
@@ -136,86 +139,17 @@ def link_nodes(
 
     return connections
 
-def get_link(tree: NodeTree, of: NodeType) -> Optional[NodeLink]:
-    links = get_links(tree, of)
-    if len(links) == 0:
-        return None
-    return links[0]
-
-def get_links(tree: NodeTree, of: NodeType) -> List[NodeLink]:
-    links = []
-    if isinstance(of, NodeSocket):
-        links = of.links
-    elif isinstance(of, Node):
-        for input in of.inputs:
-            links.extend(input.links)
-        for output in of.outputs:
-            links.extend(output.links)
-    else:
-        _, inputs, outputs = resolve_node(tree, of)
-        for input in inputs:
-            links.extend(input.links)
-        for output in outputs:
-            links.extend(output.links)
-
-    return links
-
-def remove_links(tree: NodeTree, node: NodeType) -> int:
+def remove_links(tree: NodeTree, of: NodeType, to: Optional[NodeType] = None) -> int:
     removed = 0
-    for link in get_links(tree, node):
-        tree.links.remove(link)
-        removed += 1
+    if to is not None:
+        to = _resolve_node(tree, to)["node"]
+
+    for link in get_links(tree, of):
+        if to is None or link.to_node == to:
+            tree.links.remove(link)
+            removed += 1
 
     return removed
-
-def get_socket(tree: NodeTree, node_str: str) -> NodeSocket:
-    return get_sockets(tree, node_str)[0]
-
-def get_sockets(tree: NodeTree, node_str: str) -> List[NodeSocket]:
-    _, inputs, outputs = resolve_node(tree, node_str)
-    inputs.extend(outputs)
-    return inputs
-
-def get_input_sockets(tree: NodeTree, node_str: str) -> List[NodeSocket]:
-    return resolve_node(tree, node_str)[1]
-
-def get_output_sockets(tree: NodeTree, node_str: str) -> List[NodeSocket]:
-    return resolve_node(tree, node_str)[2]
-
-def get_node(tree: NodeTree, node_str: str) -> Node:
-    """
-    Retrieve the the Node from tree at the given `node_str`.
-
-    raises ValueError if `node_path` is invalid.
-    """
-    return resolve_node(tree, node_str)[0]
-
-def resolve_node(tree: NodeTree, node_str: str) \
-    -> Tuple[Node, List[NodeSocket], List[NodeSocket]]:
-    """
-    In the context of `tree`, get the Node and input and/or output sockets
-    of the `node_str`.
-
-    Return:
-    Tuple containing (Node, `Socket`s, output `Socket`s)
-    """
-
-    node_name, socket_name, socket_index, include_inputs, include_outputs = \
-        _parse_node_str(node_str)
-
-    if node_name not in tree.nodes:
-        _invalid_node_str(node_str,
-            "Node name ({}) not found".format(node_name))
-
-    node = tree.nodes[node_name]
-
-    inputs = []
-    outputs = []
-
-    _append_matching_sockets(socket_name, socket_index, include_inputs, node.inputs, inputs)
-    _append_matching_sockets(socket_name, socket_index, include_outputs, node.outputs, outputs)
-
-    return (node, inputs, outputs)
 
 # helpers ↓
 
@@ -224,21 +158,16 @@ def _append_matching_sockets(
     socket_index: str,
     include: bool,
     node_sockets: Union[NodeInputs,NodeOutputs],
-    out_sockets: List[NodeSocket]):
+    out_sockets: List[NodeSocket],
+    out_links: List[NodeLink]):
     name_count = 0
     if include:
         for socket in node_sockets:
             if socket_name is None or socket_name == socket.name:
                 if socket_index < 0 or socket_index == name_count:
                     out_sockets.append(socket)
+                    out_links.extend(socket.links)
                 name_count += 1
-
-def _format_socket_str(node, socket, symbol):
-    if isinstance(socket, str):
-        return '{}{}{}{}'.format(
-            symbol, node, SOCKET_DELIMETER, socket)
-
-    return '{}{}'.format(symbol, node)
 
 def _invalid_node_str(node_str, message):
     raise ValueError("Invalid Node Str: {}\n{}".format(node_str, message))
@@ -276,10 +205,10 @@ def _parse_node_str(node_str: str) -> Tuple[str, str, int, bool, bool]:
         input = False
         node_str = node_str[1:]
 
-    parts = node_str.split(SOCKET_DELIMETER)
+    parts = node_str.split(SOCKET_DELIMITER)
     if len(parts) > 1:
         socket = parts[-1]
-        node = SOCKET_DELIMETER.join(parts[:-1])
+        node = SOCKET_DELIMITER.join(parts[:-1])
     else:
         node = node_str
 
@@ -292,3 +221,51 @@ def _parse_node_str(node_str: str) -> Tuple[str, str, int, bool, bool]:
             socket = socket[:left_bracket]
 
     return (node, socket, socket_index, input, output)
+
+def _resolve_node(tree: NodeTree, node: NodeType) \
+    -> Dict[str, Union[Node, List[NodeSocket], List[NodeLink]]]:
+    """
+    In the context of ``tree``, get the Node and input and/or output sockets
+    of the `node`.
+
+    Return:
+    Tuple containing (Node, ``Socket``s, output ``Socket``s)
+    """
+
+    inputs = []
+    outputs = []
+    input_links = []
+    output_links = []
+
+    if isinstance(node, str):
+        node_name, socket_name, socket_index, include_inputs, include_outputs = \
+            _parse_node_str(node)
+
+        if node_name not in tree.nodes:
+            _invalid_node_str(node,
+                "Node name ({}) not found".format(node_name))
+
+        node = tree.nodes[node_name]
+        _append_matching_sockets(socket_name, socket_index, include_inputs, node.inputs, inputs, input_links)
+        _append_matching_sockets(socket_name, socket_index, include_outputs, node.outputs, outputs, output_links)
+    elif isinstance(node, Node):
+        outputs.extend(node.outputs)
+        inputs.extend(node.inputs)
+        input_links.extend(filter(lambda a: a.to_node == node, node.links))
+        output_links.extend(filter(lambda a: a.from_node == node, node.links))
+    elif isinstance(node, NodeSocket):
+        if node.is_output:
+            outputs.append(node)
+            output_links.extend(node.links)
+        else:
+            inputs.append(node)
+            input_links.extend(node.links)
+        node = node.node
+
+    return {
+        "node": node,
+        "input_links": input_links,
+        "input_sockets": inputs,
+        "output_links": output_links,
+        "output_sockets": outputs,
+    }
